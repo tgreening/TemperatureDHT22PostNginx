@@ -2,7 +2,6 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 //#include <WiFiUdp.h>
-#include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
 #include <FS.h>                   //this needs to be first, or it all crashes and burns...
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 #include <ESP8266mDNS.h>
@@ -10,7 +9,11 @@
 #include "DHTesp.h"
 
 // WiFi parameters
-const char* host = "basement";
+const char* host = "basement"; 
+const char* ssid = "SSID";
+const char* pword = "password";
+const char* server = "http_server:port";
+int delay_minutes = 15;
 String delayMinutes;
 String serverAddress;
 const int PIN = D6;
@@ -21,93 +24,26 @@ long nextReading = millis();
 //Variables
 float temp; //Stores temperature value
 
-//flag for saving data
-bool shouldSaveConfig = false;
-
-//callback notifying us of the need to save config
-void saveConfigCallback () {
-  Serial.println("Should save config");
-  shouldSaveConfig = true;
-}
 void setup(void)
 {
-  const char* server;
-  const char* delay_minutes;
 
   // Start Serial
   Serial.begin(115200);
-  WiFiManager wifiManager;
-  if (SPIFFS.begin()) {
-    Serial.println("mounted file system");
-    if (SPIFFS.exists("/config.json")) {
-      //file exists, reading and loading
-      Serial.println("reading config file");
-      File configFile = SPIFFS.open("/config.json", "r");
-      if (configFile) {
-        Serial.println("opened config file");
-        size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
-
-        configFile.readBytes(buf.get(), size);
-        DynamicJsonBuffer jsonBuffer;
-        JsonObject& json = jsonBuffer.parseObject(buf.get());
-        json.printTo(Serial);
-        if (json.success()) {
-          Serial.println("\nparsed json");
-          server = json["serverAddress"];
-          delay_minutes = json["delay_minutes"];
-        } else {
-          Serial.println("failed to load json config");
-        }
-      }
-    }
-  } else {
-    Serial.println("failed to mount FS");
-  }
-  WiFiManagerParameter custom_delay_minutes("delayMinutes", "Delay Minutes", delay_minutes, 2);
-  WiFiManagerParameter custom_server("serverAddress", "Server Address", server, 40);
-  wifiManager.setSaveConfigCallback(saveConfigCallback);
-
-  //add all your parameters here
-  wifiManager.addParameter(&custom_delay_minutes);
-  wifiManager.addParameter(&custom_server);
+  WiFi.mode(WIFI_STA);
   WiFi.hostname(String(host));
 
-  wifiManager.setConfigPortalTimeout(90);
-  if (!wifiManager.startConfigPortal(host)) {
-    Serial.println("failed to connect and hit timeout");
-    delay(3000);
-    //reset and try again, or maybe put it to deep sleep
-    ESP.reset();
-    delay(5000);
-  }
-  WiFi.mode(WIFI_STA);
-  //if you ;get here you have connected to the WiFi
+  WiFi.begin(ssid, pword);             // Connect to the network
+  Serial.print("Connecting to ");
+  Serial.print(ssid); Serial.println(" ...");
+
+  int i = 0;
+  while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
+    delay(1000);
+    Serial.print(++i); Serial.print(' ');
+  }  //if you get here you have connected to the WiFi
   Serial.println("connected...yeey :)");
   if (!MDNS.begin(host)) {
     Serial.println("Error setting up MDNS responder!");
-  }
-
-  server = custom_server.getValue();
-  delay_minutes = custom_delay_minutes.getValue();
-  //save the custom parameters to FS
-  if (shouldSaveConfig) {
-    Serial.println("saving config");
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
-    json["serverAddress"] = server;
-    json["delay_minutes"] = delay_minutes;
-
-    File configFile = SPIFFS.open("/config.json", "w");
-    if (!configFile) {
-      Serial.println("failed to open config file for writing");
-    }
-
-    json.printTo(Serial);
-    json.printTo(configFile);
-    configFile.close();
-    //end save
   }
 
   ArduinoOTA.setHostname(host);
@@ -147,10 +83,6 @@ void setup(void)
 
   // Print the IP address
   Serial.println(WiFi.localIP());
-  serverAddress = String(server);
-  delayMinutes = String(delay_minutes);
-  Serial.println("Server: " + serverAddress);
-  Serial.println("Delay: " + delayMinutes);
 }
 
 void loop() {
@@ -173,7 +105,7 @@ void loop() {
     Serial.println(answer);    //Print request response payload
 
     http.end();  //Close connection
-    nextReading = millis() + (delayMinutes.toInt() * 60000);
+    nextReading = millis() + (delayMinutes * 60000);
   }
   ArduinoOTA.handle();
 }
